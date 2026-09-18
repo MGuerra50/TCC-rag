@@ -8,3 +8,4 @@ Iniciar (banco de dados vazio):
 
 Iniciar (banco de dados já preenchido):
 1. No WSL rodar "cd rag-ingestion", em seguida rodar "docker compose up -d db"
+2. (API ainda em desenvolvimento)
