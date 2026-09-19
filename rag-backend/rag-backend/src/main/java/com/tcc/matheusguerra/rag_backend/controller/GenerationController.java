@@ -6,30 +6,29 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import com.tcc.matheusguerra.rag_backend.dto.SearchResponse;
-import com.tcc.matheusguerra.rag_backend.dto.SearchRequest;
-import com.tcc.matheusguerra.rag_backend.service.RagRetrievalService;
+import com.tcc.matheusguerra.rag_backend.dto.AskRequest;
+import com.tcc.matheusguerra.rag_backend.dto.AskResponse;
+import com.tcc.matheusguerra.rag_backend.service.RagGenerationService;
 
 @RestController
-@RequestMapping("/api/search")
-public class RetrievalController {
-    private final RagRetrievalService service;
-    public RetrievalController (RagRetrievalService service){
-        this.service = service;
+@RequestMapping("/api/ask")
+public class GenerationController{
+    private final RagGenerationService generationService;
+    public GenerationController(RagGenerationService generationService){
+        this.generationService = generationService;
     } 
-
     @GetMapping
-    public ResponseEntity<SearchResponse> search (
+    public ResponseEntity<AskResponse> askGet(
         @RequestParam String question,
         @RequestParam(defaultValue = "5") int limit
     ){
-        SearchResponse response = service.search(question, limit);
+        AskResponse response = generationService.ask(question, limit);
         return ResponseEntity.ok(response);
     }
 
     @PostMapping
-    public ResponseEntity<SearchResponse> searchPost(@RequestBody SearchRequest request){
-        SearchResponse response = service.search(request.question(), request.limit());
+    public ResponseEntity<AskResponse> askPost(@RequestBody AskRequest request){
+        AskResponse response = generationService.ask(request.question(), request.limit());
         return ResponseEntity.ok(response);
     }
 }

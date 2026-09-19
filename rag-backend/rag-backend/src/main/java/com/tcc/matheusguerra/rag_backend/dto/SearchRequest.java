@@ -1,9 +1,9 @@
 package com.tcc.matheusguerra.rag_backend.dto;
 
-record SearchRequest(
+public record SearchRequest(
         String question,
         Integer limit) {
-    SearchRequest {
+    public SearchRequest {
         if (limit == null || limit <= 0) {
             limit = 5;
         }

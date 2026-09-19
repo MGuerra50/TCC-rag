@@ -10,7 +10,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 @Repository
 public interface DocumentChunkRepository extends JpaRepository<DocumentChunk, UUID> {
     @Query(value="""
-        SELECT id, content,company, year, quarter,doc_type, page_number, souce_path
+        SELECT id, content,company, year, quarter,doc_type, page_number, source_path, embedding
         FROM document_chunks
         ORDER BY embedding <=> cast(:queryEmbedding AS vector)
         LIMIT :limit
