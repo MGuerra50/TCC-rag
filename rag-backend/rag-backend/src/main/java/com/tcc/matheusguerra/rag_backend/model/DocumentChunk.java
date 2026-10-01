@@ -5,6 +5,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -43,4 +44,7 @@ public class DocumentChunk {
     @JsonIgnore
     @Column(columnDefinition = "vector(768)")
     private String embedding;
+
+    @Transient
+    private Double distance;
 }

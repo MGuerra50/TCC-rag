@@ -56,11 +56,23 @@ public class RagGenerationService {
         log.info("Retrieval retornou {} chunks compor o contexto", chunks.size());
 
         if (chunks.isEmpty()) {
-            log.warn("Nenhum chunk encontrado para a pergunta: \"{}\"", question);
+            log.warn("Nenhum chunk relevante encontrado para a pergunta: \"{}\"", question);
+            List<String> availableCompanies = retrievalService.findAvailableCompanies();
+            log.info("Empresas disponíveis na base: {}", availableCompanies);
+            String fallbackMessage;
+            if(availableCompanies.isEmpty()){
+                fallbackMessage = "Não foram encontrados documentos na base de dados.\nVerifique se o processo de ingestão foi executado corretamente.";
+            } else {
+                String companiesList = String.join(", ", availableCompanies);
+                fallbackMessage = "Não foram encontrados documentos relevantes para esta pergunta. \nAs empresas disponíveis na base são: "
+                    +companiesList+".\nGostaria de reformular sua pergunta sobre alguma delas?";
+            }
             return new AskResponse(
-                    question,
-                    "Não foram encontrados documentos relevantes para responder esta pergunta",
-                    List.of());
+                question,
+                fallbackMessage,
+                List.of(),
+                availableCompanies
+            );
         }
 
         String formattedContext = formatContext(chunks);
@@ -78,6 +90,9 @@ public class RagGenerationService {
         log.info("Resposta gerada com sucesso ({} caracteres)", generatedAnswer.length());
         List<AskResponse.SourceReference> sources = extractSources(chunks);
         return new AskResponse(question, generatedAnswer, sources);
+    }
+    public List<String>findAvailableCompanies(){
+        return retrievalService.findAvailableCompanies();
     }
 
     private String nullSafe(Object value) {

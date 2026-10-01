@@ -16,6 +16,7 @@ public record SearchResponse(
         String quarter,
         String docType,
         Integer pageNumber,
-        String sourcePath
+        String sourcePath,
+        Double distance
     ){}
 }

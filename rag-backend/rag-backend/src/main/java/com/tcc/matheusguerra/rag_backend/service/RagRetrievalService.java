@@ -13,6 +13,7 @@ import com.tcc.matheusguerra.rag_backend.repository.DocumentChunkRepository;
 @Service
 public class RagRetrievalService {
     private static final Logger log = LoggerFactory.getLogger(RagRetrievalService.class);
+    private static final double DEFAULT_MAX_DISTANCE = 1.2;
     private final DocumentChunkRepository repository;
     private final EmbeddingModel embeddingModel;
 
@@ -26,11 +27,16 @@ public class RagRetrievalService {
         float[] vector = embeddingModel.embed(question);
         log.debug("Embedding gerado com {} dimensões", vector.length);
         String pgVectorString = formatVectorForPgVector(vector);
-        List<DocumentChunk> chunks = repository.findSimilarChunks(pgVectorString, limit);
+        List<DocumentChunk> chunks = repository.findSimilarChunks(pgVectorString, limit, DEFAULT_MAX_DISTANCE);
 
-        log.info("Busca retornou {} chunks relevantes", chunks.size());
+        log.info("Busca retornou {} chunks relevantes (threshold={})", chunks.size(), DEFAULT_MAX_DISTANCE);
         return buildResponse(question, chunks);
     }
+
+    public List<String> findAvailableCompanies(){
+        return repository.findDistinctCompanies();
+    }
+
 
     private String formatVectorForPgVector(float[] vector) {
         StringBuilder sb = new StringBuilder("[");
@@ -55,7 +61,9 @@ public class RagRetrievalService {
                         chunk.getQuarter(),
                         chunk.getDocType(),
                         chunk.getPageNumber(),
-                        chunk.getSourcePath()))
+                        chunk.getSourcePath(),
+                        chunk.getDistance()
+                    ))
                 .collect(Collectors.toList());
         return new SearchResponse(question, results.size(), results);
     }

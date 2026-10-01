@@ -8,7 +8,7 @@ Iniciar (banco de dados vazio):
 
 Iniciar (banco de dados já preenchido):
 1. No WSL rodar "cd rag-ingestion", em seguida rodar "docker compose up -d db"
-2. Após o banco de dados já estar rodando, é necessário configurar no windows a variável de ambiente do Gemini:
+2. Após o banco de dados já estar rodando, é necessário configurar no windows a variável de ambiente do Gemini, se ainda não foi configurada:
     - Pode ser feito manualmente no Windows em Propriedades do Sistema > Variáveis de ambiente
     - Pode ser feito pelo PowerShell com $env:GeminiAPIKeyRAG="sua_chave_da_api_aqui"
 3. No PowerShell rodar "cd rag-backend/rag-backend", em seguida rodar ".\mvnw spring-boot:run" ou ".\mvnw.cmd spring-boot:run"
