@@ -21,9 +21,12 @@ public class RetrievalController {
     @GetMapping
     public ResponseEntity<SearchResponse> search (
         @RequestParam String question,
-        @RequestParam(defaultValue = "5") int limit
+        @RequestParam(defaultValue = "5") int limit,
+        @RequestParam(required = false) String corpus
     ){
-        SearchResponse response = service.search(question, limit);
+        SearchResponse response = corpus == null || corpus.isBlank()
+            ? service.search(question, limit)
+            : service.search(question, limit, corpus);
         return ResponseEntity.ok(response);
     }
 

@@ -9,17 +9,24 @@ from dotenv import load_dotenv
 
 from src.database import(
     ChunkRow,
+    count_cached,
     count_chunks,
+    embedding_cache_key,
+    get_cached_embeddings,
+    put_cached_embeddings,
     count_ingested_sources,
     delete_chunks_by_source,
     init_db,
+    insert_chunks,
     source_already_ingested,
 )
 from src.gemini_client import(
     EmbeddingCircuitOpenError,
     EmbeddingError,
     EmbeddingModelNotFoundError,
+    EmbeddingQuotaExhaustedError,
     GeminiEmbeddingClient,
+    _resumo,
 )
 from src.pdf_processor import discover_pdfs, extract_and_chunk
 
@@ -58,7 +65,7 @@ def process_pdf(
 )->tuple[str, int]:
     source_path=_relative_source(pdf_path, data_dir)
     if skip_ingested and source_already_ingested(source_path):
-        logger.info("Already ingested, skipping %s", source_path)
+        logger.info("Arquivo já ingerido, pulando %s", source_path)
         return "skipped", 0
 
     chunks=extract_and_chunk(
@@ -70,22 +77,44 @@ def process_pdf(
 
     if not chunks:
         logger.warning(
-            "No chunks produced for %s; skipping", pdf_path
+            "Nenhum trecho gerado para %s; pulando", pdf_path
         )
         return "skipped", 0
 
     source_path=chunks[0].source_path
     texts=[chunk.content for chunk in chunks]
+    model=client.model
+    keys=[embedding_cache_key(text, model) for text in texts]
+    cached=get_cached_embeddings(keys)
+    faltando=[i for i, k in enumerate(keys) if k not in cached]
+    if cached:
+        logger.info(
+            "Cache: %s de %s chunks ja embeddados; faltam %s",
+            len(texts)-len(faltando), len(texts), len(faltando),
+        )
 
-    try: 
-        embeddings=client.embed_texts(texts)
-    except EmbeddingCircuitOpenError:
+    def __persistir(batch_texts, batch_vectors):
+        put_cached_embeddings([
+            (embedding_cache_key(bt, model), bv, model)
+            for bt, bv in zip(batch_texts, batch_vectors, strict=True)
+        ])
+
+    try:
+        if faltando:
+            novos=client.embed_texts([texts[i] for i in faltando], on_batch=__persistir)
+            for i, vec in zip(faltando, novos, strict=True):
+                cached[keys[i]]=vec
+        embeddings=[cached[k] for k in keys]
+    except (EmbeddingCircuitOpenError, EmbeddingQuotaExhaustedError):
         raise
-    except EmbeddingModelNotFoundError:
-        logger.exception("Embedding model not found (404) for %s", source_path)
+    except EmbeddingModelNotFoundError as exc:
+        logger.error("Modelo de embedding nao encontrado (404) em %s | %s",
+                     source_path, _resumo(exc))
+        logger.debug("Traceback completo", exc_info=True)
         return "error", 0
-    except EmbeddingError:
-        logger.exception("Embedding failed for %s", source_path)
+    except EmbeddingError as exc:
+        logger.error("Embedding falhou em %s -> %s", source_path, _resumo(exc))
+        logger.debug("Traceback completo", exc_info=True)
         return "error", 0
 
     rows=[
@@ -98,34 +127,38 @@ def process_pdf(
             doc_type=chunk.doc_type,
             page_number=chunk.page_number,
             source_path=chunk.source_path,
+            section_title=chunk.section_title,
+            scope=chunk.scope,
+            scale=chunk.scale,
+            currency=chunk.currency,
+            scale_source=chunk.scale_source,
+            printed_page_label=chunk.printed_page_label,
+            content_type=chunk.content_type,
+            context_header=chunk.context_header,
+            chunk_index=chunk.chunk_index,
         )
-        for chunk, embedding in zip(chunks, embeddings, stric=True)
+        for chunk, embedding in zip(chunks, embeddings, strict=True)
     ]
 
     delete_chunks_by_source(source_path)
     inserted=insert_chunks(rows)
-    logger.info("Sucessfully ingested %s (%s chunks)", source_path, inserted)
+    logger.info("Ingestão concluída %s (%s chunks)", source_path, inserted)
     return "processed", inserted
 
 def run()->int:
     load_dotenv()
     configure_logging()
-
     data_dir=Path(os.getenv("DATA_DIR", "/data"))
     chunk_size=_env_int("CHUNK_SIZE", 1000)
     chunk_overlap=_env_int("CHUNK_OVERLAP", 200)
     skip_ingested=_env_bool("SKIP_INGESTED", True)
 
-    logger.info(
-        "Starting RAG ingestion | data_dir=%s skip_ingested=%s",
-        data_dir,
-        skip_ingested,
-    )
     init_db()
     logger.info(
-        "Database status | sources=%s chunks=%s",
+        "Situação do banco | arquivos=%s chunks=%s embeddings em cache=%s",
         count_ingested_sources(),
         count_chunks(),
+        count_cached(),
     )
 
     try:
@@ -135,17 +168,35 @@ def run()->int:
         return 1
 
     pdfs=discover_pdfs(data_dir)
+    only_source=os.getenv("ONLY_SOURCE", "").strip()
+    if only_source:
+        needle=only_source.lower()
+        pdfs=[p for p in pdfs if needle in _relative_source(p, data_dir).lower()]
+        logger.info("ONLY_SOURCE='%s' -> %s PDF(s) selecionado(s)", only_source, len(pdfs))
+
     if not pdfs:
-        logger.warning("No PDF files found under %s", data_dir)
+        logger.warning("Nenhum arquivo PDF encontrado em %s", data_dir)
         return 0
+
+    if _env_bool("QUOTA_PROBE", True):
+        try:
+            client.probe_quota()
+        except EmbeddingQuotaExhaustedError as exc:
+            logger.error("%s", exc)
+            return 1
+        except EmbeddingError:
+            logger.exception("A verificação de cota falhou! (O problema não é falta de cota)")
+            return 1
 
     processed=0
     skipped=0
     errors=0
     total_chunks=0
+    consecutive_errors=0
+    max_consecutive_errors=_env_int("MAX_CONSECUTIVE_ERRORS", 2)
 
     for index, pdf_path in enumerate(pdfs, start=1):
-        logger.info("[%s/%s] Processing %s", index, len(pdfs), pdf_path)
+        logger.info("[%s/%s] Processando %s", index, len(pdfs), pdf_path)
         try:
             status, chunk_count=process_pdf(
                 pdf_path=pdf_path,
@@ -155,35 +206,48 @@ def run()->int:
                 chunk_overlap=chunk_overlap,
                 skip_ingested=skip_ingested,
             )
-
-        except EmbeddingCircuitOpenError as exc:
-            logger.error("Circuit break triggered: %s", exc)
+        except (EmbeddingCircuitOpenError, EmbeddingQuotaExhaustedError) as exc:
+            logger.error("Interrupção de segurança: %s", exc)
             logger.info(
-                "Ingestion aborted | processed=%s skipped=%s errors=%s total_chunks=%s",
+                "Ingestão interrompida | processados=%s pulados=%s erros=%s total_chunks=%s",
                 processed,
                 skipped,
                 errors+1,
                 total_chunks,
             )
             return 1
-        except Exception:
-            logger.exception("Unhandled error while processing %s", pdf_path)
+        except Exception as exc:
+            logger.error("Erro nao tratado em %s -> %s", pdf_path, _resumo(exc))
+            logger.debug("Traceback completo", exc_info=True)
             errors+=1
             continue
 
         if status=="processed":
             processed+=1
             total_chunks+=chunk_count
+            consecutive_errors=0
         elif status == "skipped":
             skipped+=1
         else:
             errors+=1
+            consecutive_errors+=1
+            if consecutive_errors>=max_consecutive_errors:
+                logger.error(
+                    "Abortando: %s arquivos consecutivos falharam ao gerar embeddings. Verifique "
+                    "a cota de uso. ",
+                    consecutive_errors
+                )
+                logger.info(
+                    "Ingestão interrompida | processados=%s pulados=%s erros=%s total_chunks=%s",
+                    processed, skipped, errors, total_chunks,
+                )
+                return 1
 
     logger.info(
-        "Ingestion finished | processed=%s skipped=%s errors=%s total_chunks=%s",
-        processed,
-        skipped,
-        errors,
+        "Ingestão interrompida | processados=%s pulados=%s erros=%s total_chunks=%s",
+        processed, 
+        skipped, 
+        errors, 
         total_chunks,
     )
     return 1 if errors else 0

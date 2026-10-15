@@ -21,15 +21,16 @@ public class GenerationController{
     @GetMapping
     public ResponseEntity<AskResponse> askGet(
         @RequestParam String question,
-        @RequestParam(defaultValue = "5") int limit
+        @RequestParam(defaultValue = "5") int limit,
+        @RequestParam(required = false) String corpus
     ){
-        AskResponse response = generationService.ask(question, limit);
+        AskResponse response = generationService.ask(question, limit, corpus);
         return ResponseEntity.ok(response);
     }
 
     @PostMapping
     public ResponseEntity<AskResponse> askPost(@RequestBody AskRequest request){
-        AskResponse response = generationService.ask(request.question(), request.limit());
+        AskResponse response = generationService.ask(request.question(), request.limit(), request.corpus());
         return ResponseEntity.ok(response);
     }
 

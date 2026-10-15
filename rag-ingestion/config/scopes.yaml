@@ -1,0 +1,13 @@
+companies:
+  Copel:
+    aliases:
+      "COPEL DIS": "COPEL DIS (distribuicao)"
+      "COPEL GET": "COPEL GET (geracao e transmissao)"
+      "COPEL COM": "COPEL COM (comercializacao)"
+      "COPEL DISTRIBUICAO": "COPEL DIS (distribuicao)" 
+      "COPEL GERACAO E TRANSMISSAO": "COPEL GET (geracao e transmissao)"
+      "COPEL COMERCIALIZACAO": "COPEL COM (comercializacao)"
+      "CONSOLIDADO": "consolidado"
+      "DRE GET": "COPEL GET (geracao e transmissao)"
+      "DRE DIS": "COPEL DIS (distribuicao)"
+      "DRE COM": "COPEL COM (comercializacao)"
