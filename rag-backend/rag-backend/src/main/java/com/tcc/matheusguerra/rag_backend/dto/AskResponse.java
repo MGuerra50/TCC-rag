@@ -10,7 +10,7 @@ public record AskResponse(
         SearchResponse.AppliedFilters appliedFilters) {
     public record SourceReference(
             String company, Integer year, String quarter, String docType, Integer pageNumber,
-            String printedPageLabel, String scope, String scale, String scaleSource) {
+            String scope, String scale, String scaleSource) {
     }
 
     public AskResponse(String question, String answer, List<SourceReference> sources) {

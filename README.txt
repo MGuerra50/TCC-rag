@@ -12,4 +12,4 @@ Iniciar (banco de dados já preenchido):
     - Pode ser feito manualmente no Windows em Propriedades do Sistema > Variáveis de ambiente
     - Pode ser feito pelo PowerShell com $env:GeminiAPIKeyRAG="sua_chave_da_api_aqui"
 3. No PowerShell rodar "cd rag-backend/rag-backend", em seguida rodar ".\mvnw spring-boot:run" ou ".\mvnw.cmd spring-boot:run"
-4. A API ficará disponível em http://localhost:8080
+4. A API ficará disponível em http://localhost:8081

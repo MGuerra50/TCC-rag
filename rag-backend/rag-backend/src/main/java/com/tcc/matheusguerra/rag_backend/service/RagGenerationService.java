@@ -59,7 +59,10 @@ public class RagGenerationService {
 
             7. Coerência de período: Responda o período que foi perguntado. Se a pergunta não indicar período, use
             o período mais recente disponível nos trechos e diga explicitamente qual período está sendo usado. Não 
-            empilhe períodos diferentes como se todos fossem a resposta.
+            empilhe períodos diferentes como se todos fossem a resposta. Exceção: se a mensagem do usuário trouxer a 
+            observação de que o usuário pediu busca em todos os períodos, não se limite ao período mais recente: 
+            reúna as informações dos trechos de todos os períodos recuperados e indique de qual período (trimestre e 
+            ano) vem cada informação.
 
             8. Leitura de tabelas: Nos trechos marcados como tabela, o campo "Colunas" lista os rótulos das colunas
             na ordem em que os valores aparecem, e as células são separadas por "|". Atenção: a extração do PDF às
@@ -106,13 +109,15 @@ public class RagGenerationService {
     }
 
     public AskResponse ask(String question, int limit, String corpus) {
-        log.info("Iniciando geração de resposta para \"{}\" (limite={} corpus={})", question, limit, corpus);
+       return ask(question, limit, corpus, false);
+    }
+
+    public AskResponse ask(String question, int limit, String corpus, boolean fullSearch) {
+        log.info("Iniciando geração de resposta para \"{}\" (limite={} corpus={} buscaTotal={})", question, limit, corpus, fullSearch);
 
         SearchResponse searchResponse;
         try{
-            searchResponse=corpus==null||corpus.isBlank()
-                ? retrievalService.search(question, limit)
-                : retrievalService.search(question, limit, corpus);
+            searchResponse=retrievalService.search(question, limit, corpus,fullSearch);
         } catch (RetrievalUnavailableException exc){
             return new AskResponse(
                 intentService.sanitizeQuestion(question), 
@@ -132,7 +137,7 @@ public class RagGenerationService {
         String formattedContext = formatContext(chunks);
         log.info("Contexto formado com {} caracteres", formattedContext.length());
 
-        String userMessage = buildUserMessage(cleanedQuestion, formattedContext, searchResponse.appliedFilters(), chunks, retrievalService.findAvailableCompanies().size());
+        String userMessage = buildUserMessage(cleanedQuestion, formattedContext, searchResponse.appliedFilters(), chunks, retrievalService.findAvailableCompanies().size(), fullSearch);
 
         List<AskResponse.SourceReference> sources = extractSources(chunks);
 
@@ -142,13 +147,14 @@ public class RagGenerationService {
             org.springframework.ai.chat.model.ChatResponse resp = chatClient.prompt()
             .system(SYSTEM_PROMPT).user(userMessage).call().chatResponse();
             generatedAnswer=textoDe(resp);
+            registrarDiagnostico(resp);
             if (foiTruncada(resp)){
                 log.warn("Resposta truncada pelo limite de tokens para \"{}\"", cleanedQuestion);
                 generatedAnswer=generatedAnswer + "\n\nAtenção: esta resposta foi interrompida ao atingir"
                 + " o limite de tamanho do modelo e está incompleta.";
             }
         } catch(RuntimeException exc){
-            log.error("Falha ao gerar a resposta para \"{}\":{}",cleanedQuestion, resumoTecnico(exc));
+            log.error("Falha ao gerar a resposta para \"{}\": {}",cleanedQuestion, resumoTecnico(exc));
             log.debug("Detalhe tecnico da falha de geração", exc);
             return new AskResponse(cleanedQuestion, llmFailureMessage(exc), sources, null, searchResponse.appliedFilters());
         }
@@ -156,51 +162,67 @@ public class RagGenerationService {
 
         return new AskResponse(cleanedQuestion, generatedAnswer, sources, null, searchResponse.appliedFilters());
     }
-    private static String textoDe(org.springframework.ai.chat.model.ChatResponse resp){
-        if (resp==null||resp.getResult()==null||resp.getResult().getOutput()==null){
-            return "";
+    private static List<org.springframework.ai.chat.model.Generation> geracoesDe(org.springframework.ai.chat.model.ChatResponse resp){
+        if (resp==null||resp.getResults()==null){
+            return List.of();
         }
-        String texto = resp.getResult().getOutput().getText();
-        return texto==null?"":texto;
+        return resp.getResults().stream().filter(g->g!=null && g.getOutput()!=null).toList();
+    }
+    private static boolean ehRaciocinio(org.springframework.ai.chat.model.Generation g){
+        return Boolean.TRUE.equals(g.getOutput().getMetadata().get("isThought"));
+    }
+    private static String textoDe(org.springframework.ai.chat.model.ChatResponse resp){
+        return geracoesDe(resp).stream().filter(g->!ehRaciocinio(g))
+            .map(g->g.getOutput().getText()).filter(texto->texto!=null)
+            .collect(Collectors.joining());
     }
     private static boolean foiTruncada(org.springframework.ai.chat.model.ChatResponse resp){
-        if (resp==null || resp.getResult()==null || resp.getResult().getMetadata() == null){
-            return false;
-        }
-        String motivo = resp.getResult().getMetadata().getFinishReason();
-        if (motivo==null){
-            return false;
-        }
-        String m = motivo.toUpperCase(java.util.Locale.ROOT);
-        return m.contains("MAX_TOKEN") || m.contains("LENGTH");
+       return geracoesDe(resp).stream().map(g->g.getMetadata()==null
+            ? null : g.getMetadata().getFinishReason()).filter(motivo -> motivo!=null)
+            .map(motivo->motivo.toUpperCase(java.util.Locale.ROOT))
+            .anyMatch(m->m.contains("MAX_TOKEN")||m.contains("LENGTH"));
+    }
+    private static void registrarDiagnostico(org.springframework.ai.chat.model.ChatResponse resp){
+        List<org.springframework.ai.chat.model.Generation> geracoes = geracoesDe(resp);
+        long raciocinio = geracoes.stream().filter(RagGenerationService::ehRaciocinio).count();
+        String motivos = geracoes.stream().map(g->g.getMetadata()==null
+            ?null : g.getMetadata().getFinishReason()).filter(motivo->motivo!=null)
+            .distinct().collect(Collectors.joining(", "));
+        org.springframework.ai.chat.metadata.Usage uso = resp == null || resp.getMetadata() == null
+            ? null:resp.getMetadata().getUsage();
+        log.info("Resposta do modelo: {} parte(s) ({} de raciocínio), término=[{}], tokens entrada={} saida={} total={}",
+            geracoes.size(), raciocinio, motivos,
+            uso ==null ? "?":uso.getPromptTokens(),
+            uso ==null ? "?":uso.getCompletionTokens(),
+            uso ==null ? "?":uso.getTotalTokens()
+        );
     }
     public static String resumoTecnico(Throwable exc){
-        Throwable raiz=exc;
-        while(raiz.getCause() != null && raiz.getCause() != raiz){
-            raiz = raiz.getCause();
-        }
-        String msg = String.valueOf(raiz.getMessage());
-        String primeiraLinha = msg.split("\\R", 2)[0].trim();
-        if (primeiraLinha.length() > 160){
-            primeiraLinha = primeiraLinha.substring(0, 160)+"...";
-        }
-        StringBuilder sb = new StringBuilder(raiz.getClass().getSimpleName()).append(": ").append(primeiraLinha);
-        String limite = extrair(msg, "limit:\\s*(\\d+)");
-        String modelo = extrair(msg, "model:\\s*([A-Za-z0-9.\\-]+)");
-        String espera = extrair(msg, "aguardar ([0-9.]+)s");
-        if (limite != null || modelo != null || espera != null){
-            sb.append("[");
-            if (limite != null){
-                sb.append("limite=").append(limite);
-                if (msg.toLowerCase().contains("perday")){
-                    sb.append("/dia");
-                }
+        String raw = cadeiaDeMensagens(exc);
+        String detail = raw.toLowerCase(java.util.Locale.ROOT);
+        StringBuilder sb = new StringBuilder();
+        if(ehIndisponibilidade(detail)){
+            sb.append(" serviço indisponível ou sobrecarregado (HTTP 503)");
+        } else if (ehCotaExcedida(detail)){
+            sb.append(" cota de uso excedida (HTTP 429)");
+        } else if (ehTempoEsgotado(detail)){
+            sb.append(" tempo limite de resposta excedido");
+        } else {
+            Throwable raiz=exc;
+            while(raiz.getCause() != null && raiz.getCause() != raiz){
+                raiz = raiz.getCause();
             }
-            if (modelo != null){
-                sb.append(limite != null ? ", " : "").append("modelo=").append(modelo);
+            sb.append(" falha não classificada (tipo: )").append(raiz.getClass().getSimpleName()).append(")");
+        }
+        String modelo = extrairModelo(raw);
+        String espera = extrair(raw, "retry in ([0-9.]+)s");
+        if (modelo!=null||espera!=null){
+            sb.append(" [");
+            if (modelo!=null){
+                sb.append("modelo=").append(modelo);
             }
-            if (espera != null){
-                sb.append((limite != null||modelo!=null)?", ":"").append("retry~").append(espera).append('s');
+            if (espera!=null){
+                sb.append(modelo!=null ? ", ":"").append("aguardar ").append(espera).append('s');
             }
             sb.append(']');
         }
@@ -210,42 +232,54 @@ public class RagGenerationService {
         java.util.regex.Matcher m = java.util.regex.Pattern.compile(padrao, java.util.regex.Pattern.CASE_INSENSITIVE).matcher(texto);
         return m.find() ? m.group(1) : null;
     }
-
-    public static String llmFailureMessage(Throwable exc){
-        return falhaDoProvedor(exc, true);
+    private static String extrairModelo (String texto){
+        String modelo = extrair(texto, "\"modelo\"\\s*:\\s*\"([^\"]+)\"");
+        return modelo != null ? modelo : extrair(texto, "model:\\s*([A-Za-z0-9.\\-]+)");
     }
-    public static String falhaDoProvedor(Throwable exc, boolean comFontes){
-        String servico = comFontes ?  "O modelo de linguagem" : "O serviço de embeddings";
+    public static String cadeiaDeMensagens(Throwable exc){
         StringBuilder chain = new StringBuilder();
-        for (Throwable t = exc; t != null && chain.length() < 4000; t = t.getCause()){
+        for (Throwable t = exc; t!=null && chain.length() < 4000; t = t.getCause()){
             chain.append(t.getClass().getSimpleName()).append(' ').append(String.valueOf(t.getMessage())).append(' ');
             if (t.getCause() == t){
                 break;
             }
         }
-        String detail=chain.toString().toLowerCase();
-        if (detail.contains("503")||detail.contains("high demand")||detail.contains("unavailable")||detail.contains("overloaded")){
+        return chain.toString();
+    }
+    private static boolean ehIndisponibilidade(String detail){
+        return detail.contains("503")||detail.contains("high demand")||detail.contains("unavailable")||detail.contains("overloaded");
+    }
+    private static boolean ehCotaExcedida(String detail){
+        return detail.contains("429")||detail.contains("quota")||detail.contains("resource_exhausted")||detail.contains("rate limit");
+    }
+    private static boolean ehTempoEsgotado(String detail){
+        return detail.contains("timeout")||detail.contains("deadline");
+    }
+    public static String llmFailureMessage(Throwable exc){
+        return falhaDoProvedor(exc, true);
+    }
+    public static String falhaDoProvedor(Throwable exc, boolean comFontes){
+        String servico = comFontes ? "O modelo de linguagem":"O serviço de embeddings";
+        String raw = cadeiaDeMensagens(exc);
+        String detail = raw.toLowerCase(java.util.Locale.ROOT);
+        if(ehIndisponibilidade(detail)){
             return servico + " está indisponível no momento.";
         }
-        if (detail.contains("429")||detail.contains("quota")||detail.contains("resource_exhausted")||detail.contains("rate limit")){
-            String raw = chain.toString();
-            String modelo = extrair(raw, "\"model\"\\s*:\\s*\"([^\"]+)\"");
-            if (modelo == null){
-                modelo = extrair(raw, "model:\\s*([A-Za-z0-9.\\-]+");
+        if (ehCotaExcedida(detail)){
+            String modelo = extrairModelo(detail);
+            StringBuilder msg = new StringBuilder("A cota de uso").append(comFontes 
+                ? " do modelo de linguagem": " do serviço de embeddings"
+            );
+            if(modelo!=null){
+                msg.append(" (").append(modelo).append(") ");
             }
-            StringBuilder msg = new StringBuilder("A cota de uso")
-            .append(comFontes ? " do modelo de linguagem" : " do serviço de embeddings");
-            if(modelo != null){
-                msg.append(" (").append(modelo).append(")");
-            }
-            return msg.append("foi atingida.").toString();
+            return msg.append(" foi atingida.").toString();
         }
-        if (detail.contains("timeout") || detail.contains("deadline")){
+        if(ehTempoEsgotado(detail)){
             return servico+" não respondeu dentro do tempo limite.";
         }
         return "Não foi possível concluir a consulta por uma falha na chamada ao provedor.";
     }
-
     private AskResponse emptyResult(String question){
         log.warn("Nenhum chunk relevante encontrado para a pergunta: \"{}\"", question);
         List<String> availableCompanies = retrievalService.findAvailableCompanies();
@@ -284,9 +318,6 @@ public class RagGenerationService {
             }
             sb.append(" | Conteudo: ").append(nullSafe(chunk.contentType()));
             sb.append(" | Página: ").append(nullSafe(chunk.pageNumber()));
-            if (chunk.printedPageLabel() != null){
-                sb.append(" (impressa: ").append(chunk.printedPageLabel()).append(")");
-            }
             sb.append("]\n");
             sb.append(chunk.content()).append("\n\n");
         }
@@ -309,15 +340,21 @@ public class RagGenerationService {
         };
     }
     private String buildUserMessage(String question, String formattedContext, SearchResponse.AppliedFilters filters,
-        List<SearchResponse.ChunkResult> chunks, int totalNoAcervo) 
+        List<SearchResponse.ChunkResult> chunks, int totalNoAcervo, boolean fullSearch) 
     {
             String coberturaNote = coberturaNote(chunks, totalNoAcervo);
             String periodNote ="";
+            boolean semPeriodo= filters == null || ((filters.years()==null||filters.years().isEmpty())
+                && (filters.quarters()==null||filters.quarters().isEmpty()));
             if (filters != null && filters.periodWasInferred()){
                 periodNote = """
                         Observação: a pergunta não indicou um período. Os trechos abaixo foram restreitos ao período mais recente disponível para esta empresa
                         (%s%s). Informe isso ao usuário na sua resposta.
                         """.formatted(nullSafe(filters.quarter()), nullSafe(filters.year()));
+            } else if (fullSearch && semPeriodo){
+                periodNote="""
+                    Observação: o usuário pediu busca em todos os períodos. Os trechos encontrados podem vir de trimestres diferentes.
+                """;
             }
             return """
                     %s%sContexto dos relatórios financeiros:
@@ -325,7 +362,6 @@ public class RagGenerationService {
                     Pergunta do usuário:
                     %s
                     """.formatted(coberturaNote, periodNote, formattedContext, question);
-        
     }
     private String coberturaNote(List<SearchResponse.ChunkResult> chunks, int totalNoAcervo){
         if (chunks == null || chunks.isEmpty() || totalNoAcervo <= 1){
@@ -356,7 +392,6 @@ public class RagGenerationService {
                 chunk.quarter(),
                 chunk.docType(),
                 chunk.pageNumber(),
-                chunk.printedPageLabel(),
                 chunk.scope(),
                 chunk.scale(),
                 chunk.scaleSource()))

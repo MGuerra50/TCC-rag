@@ -52,12 +52,19 @@ public class RagRetrievalService {
         return search(question, limit, defaultCorpus);
     }
 
-    public SearchResponse search(String question, int limit, String corpus) {
+    public SearchResponse search(String question, int limit, String corpus){
+        return search(question, limit, corpus, false);
+    }
+
+    public SearchResponse search(String question, int limit, String corpus, boolean fullSearch) {
+        if (corpus == null || corpus.isBlank()){
+            corpus = defaultCorpus;
+        }
         String cleaned = intentService.sanitizeQuestion(question);
         if (CORPUS_V1.equalsIgnoreCase(corpus)){
             return searchLegacy(cleaned, limit);
         }
-        QueryIntent intent = resolveIntent(cleaned);
+        QueryIntent intent = resolveIntent(cleaned, fullSearch);
         return search(cleaned, limit, intent);
     }
 
@@ -82,8 +89,16 @@ public class RagRetrievalService {
     }
 
     public QueryIntent resolveIntent(String question){
+        return resolveIntent(question, false);
+    }
+
+    public QueryIntent resolveIntent(String question, boolean fullSearch){
         QueryIntent intent = intentService.extract(question, findAvailableCompanies());
         if (intent.hasPeriod() || intent.company() == null){
+            return intent;
+        }
+        if(fullSearch){
+            log.info("Busca em todos os períodos para {}; período mais recente não será aplicado", intent.company());
             return intent;
         }
         List<Object[]> latest = repository.findLatestPeriod(intent.company());

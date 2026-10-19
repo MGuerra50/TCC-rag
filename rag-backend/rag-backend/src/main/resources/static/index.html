@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assistente de Análise de Relatórios Financeiros</title>
+    <link rel="stylesheet" href="css/estilo.css">
+    <script src="js/vendor/marked.min.js" defer></script>
+    <script src="js/api.js" defer></script>
+    <script src="js/renderizacao.js" defer></script>
+    <script src="js/app.js" defer></script>
+</head>
+<body class="inicial">
+    <main id="area">
+        <section class="boas-vindas" aria-labelledby="titulo">
+            <h1 id="titulo">Assistente de Análise de Relatórios Financeiros</h1>
+            <p>Pergunte sobre os releases e demonstrações das empresas listadas na B3.</p>
+            <form class="caixa" data-form>
+                <label for="pergunta-inicial" class="visualmente-oculto">Sua pergunta</label>
+                <textarea id="pergunta-inicial" rows="1" placeholder="Digite sua pergunta..." data-input></textarea>
+                <label class="busca-total" title="Buscar em todos os períodos">
+                    <input type="checkbox" aria-label="Buscar em todos os períodos" data-busca-total>
+                </label>
+                <button type="submit">Enviar</button>
+            </form>
+            <div class="exemplos">
+                <button type="button" data-exemplo>Quais foram os números do programa de recompra de ações da Eneva informados no release do 1T25?</button>
+            </div>
+        </section>
+        <section id="conversa" aria-live="polite" aria-label="Pergunta e resposta"></section>
+    </main>    
+    <footer class="rodape">
+        <form class="caixa" data-form>
+            <label for="pergunta-nova" class="visualmente-oculto">Nova pergunta</label>
+            <textarea id="pergunta-nova" rows="1" placeholder="Faça uma nova pergunta..." data-input></textarea>
+            <label class="busca-total" title="Buscar em todos os períodos">
+                <input type="checkbox" aria-label="Buscar em todos os períodos" data-busca-total="">
+            </label>
+            <button type="submit">Enviar</button>
+        </form>
+        <p class="dica">Enter envia sua mensagem • Passe o mouse sobre uma frase para ver a fonte • Marque a bolinha para buscar em todos os períodos</p>
+    </footer>
+    <div id="dica-fonte" class="dica-fonte" role="tooltip" hidden></div>
+</body>
+</html>

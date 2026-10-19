@@ -22,15 +22,16 @@ public class GenerationController{
     public ResponseEntity<AskResponse> askGet(
         @RequestParam String question,
         @RequestParam(defaultValue = "5") int limit,
-        @RequestParam(required = false) String corpus
+        @RequestParam(required = false) String corpus,
+        @RequestParam (defaultValue = "false") boolean fullSearch
     ){
-        AskResponse response = generationService.ask(question, limit, corpus);
+        AskResponse response = generationService.ask(question, limit, corpus, fullSearch);
         return ResponseEntity.ok(response);
     }
 
     @PostMapping
     public ResponseEntity<AskResponse> askPost(@RequestBody AskRequest request){
-        AskResponse response = generationService.ask(request.question(), request.limit(), request.corpus());
+        AskResponse response = generationService.ask(request.question(), request.limit(), request.corpus(), request.fullSearch());
         return ResponseEntity.ok(response);
     }
 
