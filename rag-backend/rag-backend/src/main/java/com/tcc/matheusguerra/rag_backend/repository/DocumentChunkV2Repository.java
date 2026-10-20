@@ -68,6 +68,7 @@ public interface DocumentChunkV2Repository extends JpaRepository<DocumentChunkV2
                 c.currency AS currency,
                 c.printed_page_label AS printedPageLabel,
                 c.content_type AS contentType,
+                c.chunk_index AS chunkIndex,
                 f.distance AS distance,
                 f.score AS score
             FROM fused f
@@ -99,4 +100,33 @@ public interface DocumentChunkV2Repository extends JpaRepository<DocumentChunkV2
                 LIMIT 1
             """, nativeQuery = true)
     List<Object[]> findLatestPeriod(@Param("company") String company);
+
+    @Query (value = """
+            SELECT c.id AS id,
+                c.content AS content,
+                c.company AS company,
+                c.year AS year,
+                c.quarter AS quarter,
+                c.doc_type AS docType,
+                c.page_number AS pageNumber,
+                c.source_path AS sourcePath,
+                c.section_title AS sectionTitle,
+                c.scope AS scope,
+                c.scale AS scale,
+                c.scale_source AS scaleSource,
+                c.currency AS currency,
+                c.printed_page_label AS printedPageLabel,
+                c.content_type AS contentType,
+                c.chunk_index AS chunkIndex,
+                CAST(NULL AS double precision) AS distance,
+                CAST(NULL AS double precision) AS score
+            FROM document_chunks_v2 c
+            WHERE c.source_path = :sourcePath
+                AND c.page_number = :pageNumber
+            ORDER BY c.chunk_index
+        """, nativeQuery = true)
+    List<ChunkWithScore> findPageChunks(
+        @Param ("sourcePath") String sourcePath,
+        @Param ("pageNumber") Integer pageNumber
+    );
 }

@@ -21,7 +21,7 @@ public class QueryIntentService {
         "([1-4])\\S*(?:o|a|º|ª)?\\s*trimestre", Pattern.CASE_INSENSITIVE
     );
     private static final Map<String, String> ORDINAL_WORDS = Map.of(
-        "primeiro", "T1", "segundo", "T2", "terceiro", "T3", "quarto", "T4"
+        "primeiro", "1T", "segundo", "2T", "terceiro", "3T", "quarto", "4T"
     );
     private static final Pattern ORDINAL_QUARTER=Pattern.compile(
         "(primeiro|segundo|terceiro|quarto)\\s+trimestre", Pattern.CASE_INSENSITIVE

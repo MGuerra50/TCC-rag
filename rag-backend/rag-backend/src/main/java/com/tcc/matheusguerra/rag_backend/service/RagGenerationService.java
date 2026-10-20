@@ -42,8 +42,11 @@ public class RagGenerationService {
             no cabeçalho do trecho (campo "Escala"). Reproduza o número exatamente como aparece no documento;
             A única transformação permitida é tornar a escala explícita.
             Formato: "R$ 152.963 milhões (152.963, em R$ mil)".
-            Se o campo Escala indicar "NAO DECLARADA NESTA PAGINA", NÃO suponha a unidade: informe
+            Se o campo Escala indicar "não informado nesta página", não suponha a unidade: informe
             explicitamente que o trecho recuperado não declara a escala do valor.
+            Se o próprio texto do trecho já trouxer a unidade junto ao número (ex.: "R$ 291,8 milhões", 
+            "R$ 1,3 bilhão"), use essa unidade e não comente o campo Escala; em caso de divergência entre o texto 
+            e o campo, vale o texto.
             Se a Escala vier seguida de "(nota de unidades do documento, nao desta pagina)", a unidade
             é válida e deve ser usada normalmente, MAS diga de onde ela vem - por exemplo: "R$ 1,380 bilhões
             (1.380.100, em R$ mil, conforme a nota de unidades do documento)". Isso não é formalidade: o leitor
@@ -53,9 +56,13 @@ public class RagGenerationService {
             6. Escopo obrigatório: Todo valor deve identificar a entidade a que pertence, conforme o campo "Escopo"
             do trecho (por exemplo: Consolidado, COPEL DIS, COPEL GET, COPEL COM).
             Nunca apresente o resultado de uma subsidiária como se fosse o resultado consolidado do grupo, e nunca
-            some valores de escopo diferentes. Se o campo Escopo indicar "NAO DECLARADO NESTA PAGINA", informe que 
+            some valores de escopo diferentes. Se o campo Escopo indicar "não informado nesta página", informe que 
             o trecho não identifica a entidade. Quando os trechos trouxerem escopos diferentes, separe-os em seções
-            distintas na resposta.
+            distintas na resposta. Atenção: o campo Escopo é preenchido automaticamente por página e pode estar 
+            errado ou vazio. Se o texto do trecho nomear explicitamente a entidade (ex.: "A Copel registrou...", 
+            "o lucro líquido da Copel Distribuição...", "a Copel Get apresentou..."), use a entidade nomeada no texto,
+            inclusive para organizar as seções, e não a do campo. Só informe que a entidade não foi identificada 
+            quando nem o campo nem o texto a identificarem.
 
             7. Coerência de período: Responda o período que foi perguntado. Se a pergunta não indicar período, use
             o período mais recente disponível nos trechos e diga explicitamente qual período está sendo usado. Não 
@@ -63,6 +70,8 @@ public class RagGenerationService {
             observação de que o usuário pediu busca em todos os períodos, não se limite ao período mais recente: 
             reúna as informações dos trechos de todos os períodos recuperados e indique de qual período (trimestre e 
             ano) vem cada informação.
+            Ao citar uma variação (percentual ou em valor), nomeie o período de comparação como o documento faz (por 
+            exemplo, "em relação ao 2T24"). Nunca use expressões vagas como "em relação ao período anterior".
 
             8. Leitura de tabelas: Nos trechos marcados como tabela, o campo "Colunas" lista os rótulos das colunas
             na ordem em que os valores aparecem, e as células são separadas por "|". Atenção: a extração do PDF às
@@ -80,11 +89,26 @@ public class RagGenerationService {
             10. Economia de resposta: responda a métrica que foi perguntada e pare. Não acrescente métricas correlatas
             que não foram pedidas (se a pergunta é sobre lucro líquido, não apresente também lucro recorrente, EBITDA ou
             receita).
+            Exceção: quando a pergunta pedir o que explica, justifica ou impulsionou um resultado, os fatores que o documento
+            cita para explicar aquele resultado fazem parte da resposta e não são métricas correlatas.
+            Nesse caso, liste todos eles com seus valores: o fator principal, as demais contribuições citadas e os efeitos que 
+            compensaram o resultado, mesmo que estejam em trechos diferentes da mesma página.
+            Os fatores são os que o documento lista na explicação daquele resultado. Quando outro trecho detalhar a composição
+            de um desses fatores (por exemplo, o que formou a variação do PMSO), esse detalhe só pode aparecer dentro do 
+            próprio fator, nunca como fator separado, para não contar o mesmo efeito duas vezes.
+            O mesmo vale para perguntas sobre etapas, eventos ou cronologia: inclua todos os marcos citados nos trechos,
+            do primeiro (por exemplo, a aprovação inicial de uma proposta) ao último.
+            Descreva cada marco em texto corrido (o que ocorreu e quando). Cite quem decidiu ou aprovou (por exemplo, Conselho
+            de Administração, AGE, B3) somente quando o texto do trecho disser isso; nunca deduza o responsável e não use campos
+            fixos como "O que ocorreu / Quando / Quem".
             Quando o mesmo valor aparecer em dois trechos com escalas diferentes (por exemplo "152.963, em R$ mil" e 
             "153,0, em R$ milhões"), cite-o uma única vez, escolhendo o trecho de maior precisão - o de escala menor.
             Não repita o valor "também apresentado como". As regras 6 e 7 pedem que escopos e períodos diferentes fiquem
             em seções separadas: isso vale para os escopos e períodos que a pergunta abrange, não para enumerar tudo o 
             que foi recuperado. Uma resposta completa e curta é melhor do que uma exaustiva e cortada ao meio.
+            Se a pergunta citar apenas a empresa, sem nomerar segmento ou subsidiária, responda o valor consolidado da
+            empresa e não acrescente resultados de segmentos ou subsidiárias que não foram pedidos. Nunca repita o mesmo
+            valor em mais de uma seção da resposta.
 
             11. Alcance declarado: se a resposta listar, comparar ou ordenar empresas, ela deve dizer quantas empresas
             foram examinadas e que as demais não foram avaliadas. Quando a mensagem do usuário trouxer uma "Observação 
@@ -324,11 +348,11 @@ public class RagGenerationService {
         return sb.toString();
     }
     private String scopeLabel(String scope){
-        return scope == null || scope.isBlank() ? "NAO DECLARADO NESTA PAGINA" : scope;
+        return scope == null || scope.isBlank() ? "não informado nesta página" : scope;
     }
     private String scaleLabel(String scale, String currency){
         if (scale == null || scale.isBlank()){
-            return "NAO DECLARADA NESTA PAGINA";
+            return "não informado nesta página";
         }
         String symbol = "USD".equalsIgnoreCase(currency) ? "US$" : "R$";
         return switch (scale){

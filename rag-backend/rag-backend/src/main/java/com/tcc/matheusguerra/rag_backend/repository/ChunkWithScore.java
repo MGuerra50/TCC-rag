@@ -17,6 +17,7 @@ public interface ChunkWithScore {
     String getCurrency();
     String getPrintedPageLabel();
     String getContentType();
+    Integer getChunkIndex();
     Double getDistance();
     Double getScore();
 }

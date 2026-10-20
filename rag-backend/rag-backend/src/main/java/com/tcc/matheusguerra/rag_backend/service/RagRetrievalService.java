@@ -3,8 +3,10 @@ package com.tcc.matheusguerra.rag_backend.service;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -29,6 +31,8 @@ public class RagRetrievalService {
     private final double maxDistance;
     private final int candidatePool;
     private final String defaultCorpus;
+    private final int expandPages;
+    private final int expandMaxExtraChunks;
 
     public RagRetrievalService(
         DocumentChunkV2Repository repository, 
@@ -37,7 +41,9 @@ public class RagRetrievalService {
         QueryIntentService intentService,
         @Value("${rag.retrieval.max-distance:1.2}") double maxDistance,
         @Value("${rag.retrieval.candidate-pool:30}") int candidatePool,
-        @Value("${rag.retrieval.corpus:v2}") String defaultCorpus
+        @Value("${rag.retrieval.corpus:v2}") String defaultCorpus,
+        @Value("${rag.retrieval.page-expansion.pages:2}") int expandPages,
+        @Value("${rag.retrieval.page-expansion.max-extra-chunks:20}") int expandMaxExtraChunks
     ) {
         this.repository = repository;
         this.legacyRepository = legacyRepository;
@@ -46,6 +52,8 @@ public class RagRetrievalService {
         this.maxDistance = maxDistance;
         this.candidatePool = candidatePool;
         this.defaultCorpus = defaultCorpus;
+        this.expandPages = expandPages;
+        this.expandMaxExtraChunks = expandMaxExtraChunks;
     }
 
     public SearchResponse search(String question, int limit){
@@ -144,7 +152,56 @@ public class RagRetrievalService {
         }
         log.info("Busca retornou {} chunks de {} variante(s) (candidatos={} distancia máxima={})", chunks.size(),
             variants.size(), poolSize, maxDistance);    
+        chunks = expandTopPages(chunks);
         return buildResponse(question, chunks, intent);
+    }
+    private List<ChunkWithScore> expandTopPages(List<ChunkWithScore> chunks){
+        if (expandPages<=0||expandMaxExtraChunks<=0||chunks.isEmpty()){
+            return chunks;
+        }
+        Map<String, List<ChunkWithScore>> paginas = new LinkedHashMap<>();
+        for(ChunkWithScore c: chunks){
+            if(paginas.size() >= expandPages){
+                break;
+            }
+            if(c.getSourcePath()!=null && c.getPageNumber()!=null){
+                paginas.putIfAbsent(pageKey(c), new ArrayList<>());
+            }
+        }
+        Map<UUID, ChunkWithScore> presentes = new LinkedHashMap<>();
+        chunks.forEach(c->presentes.put(c.getId(), c));
+        int extras=0;
+        for (Map.Entry<String, List<ChunkWithScore>> pagina : paginas.entrySet()){
+            ChunkWithScore ref = chunks.stream().filter(c->pageKey(c).equals(pagina.getKey())).findFirst().get();
+            for(ChunkWithScore c : repository.findPageChunks(ref.getSourcePath(), ref.getPageNumber())){
+                if(presentes.containsKey(c.getId())){
+                    pagina.getValue().add(presentes.get(c.getId()));
+                } else if (extras < expandMaxExtraChunks){
+                    pagina.getValue().add(c);
+                    extras++;
+                }
+            }
+        }
+        if(extras==0){
+            return chunks;
+        }
+        List<ChunkWithScore> out = new ArrayList<>();
+        Set<String> emitidas = new HashSet<>();
+        for(ChunkWithScore c : chunks){
+            List<ChunkWithScore> pagina = paginas.get(pageKey(c));
+            if(pagina==null||pagina.isEmpty()){
+                out.add(c);
+            } else if (emitidas.add(pageKey(c))){
+                out.addAll(pagina);
+            }
+        }
+        log.info("Expansão de página: {} páginas completadas com {} chunks extras. Contexto final com {} chunks",
+            paginas.size(), extras, out.size()
+        );
+        return out;
+    }
+    private static String pageKey(ChunkWithScore c){
+        return  c.getSourcePath()+"#"+c.getPageNumber();
     }
     public List<String> findAvailableCompanies(){
         return repository.findDistinctCompanies();
