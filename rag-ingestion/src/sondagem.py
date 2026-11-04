@@ -298,7 +298,7 @@ def linhas_veredito(arquivos:list)->list:
         if paginas and nulos < paginas:
             sem_alias=[
                 e for e in escopos
-                if e != NULO and e != "consolidado" and not e.endwith(")")
+                if e != NULO and e != "consolidado" and not e.endswith(")")
             ]
             if sem_alias:
                 alertas.append(

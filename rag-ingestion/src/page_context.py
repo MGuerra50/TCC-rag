@@ -337,7 +337,7 @@ def build_footer_blacklist(footer_texts:list[str], total_pages: int)->set[str]:
             if normalized:
                 counter[normalized] += 1
 
-    threhold=max(2, int(total_pages * FOOTER_REPEAT_RAIO))
+    threhold=max(2, int(total_pages * FOOTER_REPEAT_RATIO))
     blacklist={line for line, count in counter.items() if count >= threhold}
     if blacklist:
         logger.info(
@@ -392,7 +392,7 @@ class PageContext:
     currency: str|None
     printed_page_label:str|None
     column_labels: list[str]
-    scale_souce:str|None=None
+    scale_source:str|None=None
 
 def build_context_preamble(
     company:str,
@@ -413,7 +413,7 @@ def build_context_preamble(
 
     scope_label=context.scope or "NAO DECLARADO NESTA PAGINA"
     scale_label=format_scale_label(context.scale, context.currency)
-    if context.scale is not None and context.scale_souce == "documento":
+    if context.scale is not None and context.scale_source == "documento":
         scale_label+=" (nota de unidades do documento, nao desta pagina)"
     third=f"[Escopo: {scope_label} | Escala: {scale_label}"
     if context.column_labels:
